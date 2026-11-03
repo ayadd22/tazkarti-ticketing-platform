@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Enums\EventStatusEnum;
 use App\Enums\EventTypeEnum;
+use Database\Factories\EventFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -12,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Event extends Model
 {
+    /** @use HasFactory<EventFactory> */
+    use HasFactory;
     protected $fillable = [
         'organizer_id',
         'venue_id',
