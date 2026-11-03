@@ -8,3 +8,5 @@ enum EventTypeEnum: string
     case Conference = 'conference';
     case Theater = 'theater';
 }
+
+
