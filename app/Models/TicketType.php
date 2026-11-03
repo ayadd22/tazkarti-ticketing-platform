@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -30,29 +31,39 @@ class TicketType extends Model
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The event this ticket type belongs to.
-     */
+    
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
     }
 
-    /**
-     * Reservation items that include this ticket type.
-     */
+  
     public function reservationItems(): HasMany
     {
         return $this->hasMany(ReservationItem::class);
     }
 
-    /**
-     * Issued tickets of this type.
-     */
+   
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
+    }
+
+   
+    public function scopeAvailable(Builder $query): void
+    {
+        $query->whereColumn('total_quantity', '>', \Illuminate\Support\Facades\DB::raw('sold_quantity + reserved_quantity'));
+    }
+
+  
+    public function scopeWithinPriceRange(Builder $query, ?float $min, ?float $max): void
+    {
+        if ($min !== null) {
+            $query->where('price', '>=', $min);
+        }
+
+        if ($max !== null) {
+            $query->where('price', '<=', $max);
+        }
     }
 }

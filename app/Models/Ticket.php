@@ -23,19 +23,13 @@ class Ticket extends Model
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The reservation this ticket belongs to.
-     */
+   
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
     }
 
-    /**
-     * The ticket type this ticket was issued for.
-     */
+   
     public function ticketType(): BelongsTo
     {
         return $this->belongsTo(TicketType::class);

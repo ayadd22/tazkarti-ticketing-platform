@@ -22,19 +22,11 @@ class ReservationItem extends Model
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The reservation this item belongs to.
-     */
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
     }
 
-    /**
-     * The ticket type for this line item.
-     */
     public function ticketType(): BelongsTo
     {
         return $this->belongsTo(TicketType::class);

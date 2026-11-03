@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Database\Factories\VenueFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,6 +11,9 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Venue extends Model
 {
+    /** @use HasFactory<VenueFactory> */
+    use HasFactory;
+
     protected $fillable = [
         'city_id',
         'name',
@@ -23,27 +28,18 @@ class Venue extends Model
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The city this venue belongs to.
-     */
+   
     public function city(): BelongsTo
     {
         return $this->belongsTo(City::class);
     }
 
-    /**
-     * Events held at this venue.
-     */
+    
     public function events(): HasMany
     {
         return $this->hasMany(Event::class);
     }
 
-    /**
-     * Media files associated with this venue.
-     */
     public function media(): MorphMany
     {
         return $this->morphMany(Media::class, 'mediable');

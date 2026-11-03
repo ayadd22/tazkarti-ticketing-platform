@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ReservationStatusEnum;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -29,29 +30,51 @@ class Reservation extends Model
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The buyer (User) who made this reservation.
-     */
+    
     public function buyer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'buyer_id');
     }
 
-    /**
-     * The individual line items in this reservation.
-     */
+   
     public function reservationItems(): HasMany
     {
         return $this->hasMany(ReservationItem::class);
     }
 
-    /**
-     * The issued tickets belonging to this reservation.
-     */
+    
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
+    }
+
+  
+    public function scopePending(Builder $query): void
+    {
+        $query->where('status', ReservationStatusEnum::Pending->value);
+    }
+
+  
+    public function scopePaid(Builder $query): void
+    {
+        $query->where('status', ReservationStatusEnum::Paid->value);
+    }
+
+   
+    public function scopeRefunded(Builder $query): void
+    {
+        $query->where('status', ReservationStatusEnum::Refunded->value);
+    }
+
+  
+    public function scopeExpiredAt(Builder $query, \DateTimeInterface|string|null $asOf = null): void
+    {
+        $query->where('expires_at', '<=', $asOf ?? now());
+    }
+
+  
+    public function scopeForBuyer(Builder $query, int $buyerId): void
+    {
+        $query->where('buyer_id', $buyerId);
     }
 }

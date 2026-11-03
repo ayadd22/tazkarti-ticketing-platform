@@ -15,11 +15,6 @@ class Media extends Model
         'alt_text',
     ];
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The owning mediable model (Event, Venue, or User).
-     */
     public function mediable(): MorphTo
     {
         return $this->morphTo();
