@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\EventController;
+use App\Http\Controllers\ReservationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +22,13 @@ Route::prefix('events')->name('events.')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
     Route::get('/auth/me',      [AuthController::class, 'me'])->name('auth.me');
+
+    // ── Reservations ──────────────────────────────────────────────────────────
+    Route::prefix('reservations')->name('reservations.')->group(function () {
+        Route::post('/',                        [ReservationController::class, 'store'])->name('store');
+        Route::get('/',                         [ReservationController::class, 'index'])->name('index');
+        Route::get('/{reservation}',            [ReservationController::class, 'show'])->name('show');
+    });
 
     // Original scaffold route — preserved unchanged
     Route::get('/user', function (Request $request) {
