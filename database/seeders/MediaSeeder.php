@@ -10,15 +10,10 @@ use Illuminate\Database\Seeder;
 
 class MediaSeeder extends Seeder
 {
-    /**
-     * Idempotency: firstOrCreate on (mediable_type, mediable_id, collection, path).
-     * We use a stable deterministic path derived from the owner's identifier.
-     */
+  
     public function run(): void
     {
         $created = 0;
-
-        // ── Event posters ─────────────────────────────────────────────────────
         $events = Event::all();
 
         foreach ($events as $event) {
@@ -40,7 +35,7 @@ class MediaSeeder extends Seeder
                 $created++;
             }
 
-            // Add a gallery image for published events only
+           
             if ($event->status->value === 'published') {
                 $galleryPath = 'events/gallery/event_' . $event->id . '_gallery_1.jpg';
 
@@ -62,7 +57,7 @@ class MediaSeeder extends Seeder
             }
         }
 
-        // ── Venue gallery images ──────────────────────────────────────────────
+      
         $venues = Venue::all();
 
         foreach ($venues as $venue) {
@@ -85,7 +80,7 @@ class MediaSeeder extends Seeder
             }
         }
 
-        // ── Organizer logos ───────────────────────────────────────────────────
+        
         $organizers = User::where('role', 'organizer')->get();
 
         foreach ($organizers as $organizer) {

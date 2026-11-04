@@ -100,7 +100,7 @@ class ReservationService
                     $reservation->tickets()->create([
                         'ticket_type_id' => $ticketTypeId,
                         'code'           => $this->generateUniqueCode(),
-                        'status'         => TicketStatusEnum::Valid->value,
+                        'status'         => TicketStatusEnum::Pending->value,
                     ]);
                 }
 

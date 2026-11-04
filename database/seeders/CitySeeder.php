@@ -8,10 +8,7 @@ use Illuminate\Support\Str;
 
 class CitySeeder extends Seeder
 {
-    /**
-     * Fixed set of cities used across all seeders.
-     * Using firstOrCreate on slug guarantees idempotency.
-     */
+   
     public const CITIES = [
         'Cairo',
         'Alexandria',

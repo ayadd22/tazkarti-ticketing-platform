@@ -9,16 +9,10 @@ use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<Event>
- */
+
 class EventFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+   
     public function definition(): array
     {
         $startsAt = fake()->dateTimeBetween('+1 week', '+6 months');
@@ -37,9 +31,7 @@ class EventFactory extends Factory
         ];
     }
 
-    /**
-     * Set status to draft.
-     */
+    
     public function draft(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -48,9 +40,6 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set status to published with a published_at timestamp.
-     */
     public function published(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -59,9 +48,7 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set status to cancelled.
-     */
+    
     public function cancelled(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -70,9 +57,7 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set status to postponed.
-     */
+  
     public function postponed(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -81,9 +66,7 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set event type to concert.
-     */
+    
     public function concert(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -91,9 +74,7 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set event type to conference.
-     */
+   
     public function conference(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -101,9 +82,7 @@ class EventFactory extends Factory
         ]);
     }
 
-    /**
-     * Set event type to theater.
-     */
+   
     public function theater(): static
     {
         return $this->state(fn (array $attributes) => [

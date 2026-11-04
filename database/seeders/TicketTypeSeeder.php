@@ -8,10 +8,7 @@ use Illuminate\Database\Seeder;
 
 class TicketTypeSeeder extends Seeder
 {
-    /**
-     * Ticket types keyed by event title.
-     * Idempotency: firstOrCreate on (event_id, name).
-     */
+
     private const TICKET_TYPES = [
         'Cairo Jazz Night 2027' => [
             ['name' => 'General Admission', 'price' => 150.00, 'total_quantity' => 800,  'max_per_order' => 6],

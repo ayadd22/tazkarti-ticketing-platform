@@ -21,34 +21,33 @@ use Illuminate\Support\Str;
 
 class BulkEventSeeder extends Seeder
 {
-    // ── Configuration constants ───────────────────────────────────────────────
-
-    /** Stable identifier for the bulk test event. */
+   
+   
     private const BULK_EVENT_TITLE = 'Grand Tazkarti Showcase 2027';
 
-    /** Email of the organizer who owns the bulk event. */
+    
     private const ORGANIZER_EMAIL = 'organizer1@tazkarti.test';
 
-    /** Name of the venue for the bulk event. */
+   
     private const VENUE_NAME = 'Cairo Stadium';
 
-    /** Target number of distinct ticket holders. */
+   
     private const TARGET_TICKET_HOLDERS = 1000;
 
-    /** Batch size for INSERT operations — keeps memory low. */
+    
     private const BATCH_SIZE = 100;
 
-    // ─────────────────────────────────────────────────────────────────────────
+    
 
     public function run(): void
     {
-        // ── 1. Ensure the bulk event exists ──────────────────────────────────
+        
         $event = $this->ensureEvent();
 
-        // ── 2. Ensure the ticket type exists ─────────────────────────────────
+       
         $ticketType = $this->ensureTicketType($event);
 
-        // ── 3. Determine how many ticket holders already exist ───────────────
+      
         $existing = $this->countExistingHolders($ticketType);
 
         $deficit = max(0, self::TARGET_TICKET_HOLDERS - $existing);
@@ -66,10 +65,10 @@ class BulkEventSeeder extends Seeder
             "BulkEventSeeder: {$existing} holders already exist — creating {$deficit} more."
         );
 
-        // ── 4. Create buyers, reservations, items, and tickets in batches ────
+       
         $this->createHolders($ticketType, $deficit);
 
-        // ── 5. Sync inventory counters to match actual records ───────────────
+        
         $this->syncInventory($ticketType);
 
         $total = $this->countExistingHolders($ticketType);
@@ -78,11 +77,7 @@ class BulkEventSeeder extends Seeder
         );
     }
 
-    // ─── Private helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Ensure the bulk event exists. Returns the Event model.
-     */
     private function ensureEvent(): Event
     {
         $organizer = User::where('email', self::ORGANIZER_EMAIL)->firstOrFail();
@@ -109,9 +104,7 @@ class BulkEventSeeder extends Seeder
         return $event;
     }
 
-    /**
-     * Ensure a single ticket type exists for the bulk event.
-     */
+   
     private function ensureTicketType(Event $event): TicketType
     {
         return TicketType::firstOrCreate(
@@ -120,7 +113,7 @@ class BulkEventSeeder extends Seeder
                 'name'     => 'General Admission',
             ],
             [
-                // Will be updated by syncInventory() after all records are created
+             
                 'total_quantity'    => max(self::TARGET_TICKET_HOLDERS, 1200),
                 'reserved_quantity' => 0,
                 'sold_quantity'     => 0,
@@ -131,11 +124,7 @@ class BulkEventSeeder extends Seeder
         );
     }
 
-    /**
-     * Count how many paid reservations + valid tickets already exist for this ticket type.
-     * A "holder" is a buyer with a paid reservation whose item references this ticket type
-     * AND who has at least one valid ticket of this type.
-     */
+    
     private function countExistingHolders(TicketType $ticketType): int
 {
     return DB::table('tickets')
@@ -151,10 +140,7 @@ class BulkEventSeeder extends Seeder
         ->count('reservations.buyer_id');
 }
 
-    /**
-     * Create $count new buyer → reservation → reservation_item → ticket chains.
-     * Processed in batches of BATCH_SIZE to keep memory usage flat.
-     */
+    
    
 
 private function createHolders(TicketType $ticketType, int $count): void
@@ -168,7 +154,7 @@ private function createHolders(TicketType $ticketType, int $count): void
         $batchSize = min($remaining, self::BATCH_SIZE);
 
         DB::transaction(function () use ($ticketType, $price, $paidAt, $password, $batchSize) {
-            // a) Create buyers
+         
             $buyerRows = [];
             $now = now();
 
@@ -187,7 +173,7 @@ private function createHolders(TicketType $ticketType, int $count): void
 
             DB::table('users')->insert($buyerRows);
 
-            // Retrieve the exact buyer IDs using their unique emails
+        
             $buyerEmails = array_column($buyerRows, 'email');
 
             $buyers = DB::table('users')
@@ -200,7 +186,7 @@ private function createHolders(TicketType $ticketType, int $count): void
                 $buyerIds[] = $buyers[$buyerRow['email']];
             }
 
-            // b) Create paid reservations
+          
             $reservations = [];
 
             foreach ($buyerIds as $buyerId) {
@@ -218,7 +204,7 @@ private function createHolders(TicketType $ticketType, int $count): void
                 $reservations[$buyerId] = $reservationId;
             }
 
-            // c) Create reservation items
+         
             $itemRows = [];
 
             foreach ($buyerIds as $buyerId) {
@@ -234,7 +220,7 @@ private function createHolders(TicketType $ticketType, int $count): void
 
             DB::table('reservation_items')->insert($itemRows);
 
-            // d) Create tickets
+        
             $ticketRows = [];
 
             foreach ($buyerIds as $buyerId) {
@@ -259,12 +245,7 @@ private function createHolders(TicketType $ticketType, int $count): void
     }
 }
 
-    /**
-     * Sync inventory counters on the ticket type to match actual DB records.
-     * sold_quantity = count of valid tickets for this type with a paid reservation.
-     * reserved_quantity is set to 0 after the bulk seed (no pending reservations).
-     * total_quantity is updated if sold exceeds the originally set total.
-     */
+    
     private function syncInventory(TicketType $ticketType): void
 {
     $soldCount = DB::table('reservation_items')
@@ -297,10 +278,7 @@ private function createHolders(TicketType $ticketType, int $count): void
     );
 }
 
-    /**
-     * Generate a unique ticket code in XXXX-XXXX-XXXX format.
-     * Retries on the extremely unlikely collision.
-     */
+   
     private function generateUniqueCode(): string
     {
         do {

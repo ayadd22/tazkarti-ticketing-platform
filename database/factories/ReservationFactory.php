@@ -7,16 +7,10 @@ use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<Reservation>
- */
+
 class ReservationFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    
     
         public function definition(): array
     {
@@ -30,9 +24,6 @@ class ReservationFactory extends Factory
     ];
   }
 
-    /**
-     * Pending reservation (awaiting payment).
-     */
     public function pending(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -43,9 +34,7 @@ class ReservationFactory extends Factory
         ]);
     }
 
-    /**
-     * Paid reservation.
-     */
+    
     public function paid(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -56,9 +45,7 @@ class ReservationFactory extends Factory
         ]);
     }
 
-    /**
-     * Refunded reservation.
-     */
+   
     public function refunded(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -69,9 +56,7 @@ class ReservationFactory extends Factory
         ]);
     }
 
-    /**
-     * Expired reservation.
-     */
+   
     public function expired(): static
     {
         return $this->state(fn (array $attributes) => [

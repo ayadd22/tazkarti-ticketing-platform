@@ -133,11 +133,11 @@ class ReservationTest extends TestCase
             'unit_price'      => '150.00',
         ]);
 
-        // 2 tickets created with valid status
+        // 2 tickets created with pending status (payment not yet confirmed)
         $this->assertDatabaseCount('tickets', 2);
         $this->assertDatabaseHas('tickets', [
             'ticket_type_id' => $ticketType->id,
-            'status'          => TicketStatusEnum::Valid->value,
+            'status'          => TicketStatusEnum::Pending->value,
         ]);
     }
 
@@ -549,5 +549,59 @@ class ReservationTest extends TestCase
 
         $this->getJson("/api/reservations/{$reservation->id}")
             ->assertUnauthorized();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Ticket lifecycle — pending status on creation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[Test]
+    public function tickets_created_for_pending_reservations_have_pending_status(): void
+    {
+        $buyer      = User::factory()->buyer()->create();
+        $event      = $this->publishedEvent();
+        $ticketType = $this->ticketType($event);
+
+        $this->withToken($this->tokenFor($buyer))
+            ->postJson('/api/reservations', [
+                'items' => [['ticket_type_id' => $ticketType->id, 'quantity' => 3]],
+            ])
+            ->assertCreated();
+
+        $this->assertDatabaseCount('tickets', 3);
+
+        // Every ticket must be pending — none should be valid
+        $this->assertDatabaseHas('tickets', [
+            'ticket_type_id' => $ticketType->id,
+            'status'          => TicketStatusEnum::Pending->value,
+        ]);
+        $this->assertDatabaseMissing('tickets', [
+            'status' => TicketStatusEnum::Valid->value,
+        ]);
+    }
+
+    #[Test]
+    public function ticket_factory_pending_state_creates_pending_tickets(): void
+    {
+        $ticket = \App\Models\Ticket::factory()->pending()->create();
+
+        $this->assertSame(TicketStatusEnum::Pending, $ticket->status);
+        $this->assertDatabaseHas('tickets', [
+            'id'     => $ticket->id,
+            'status' => TicketStatusEnum::Pending->value,
+        ]);
+    }
+
+    #[Test]
+    public function ticket_factory_default_state_creates_valid_tickets(): void
+    {
+        // The factory default (used for seeded paid tickets) must remain Valid
+        $ticket = \App\Models\Ticket::factory()->create();
+
+        $this->assertSame(TicketStatusEnum::Valid, $ticket->status);
+        $this->assertDatabaseHas('tickets', [
+            'id'     => $ticket->id,
+            'status' => TicketStatusEnum::Valid->value,
+        ]);
     }
 }

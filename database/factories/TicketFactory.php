@@ -9,16 +9,10 @@ use App\Models\TicketType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
-/**
- * @extends Factory<Ticket>
- */
+
 class TicketFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    
     public function definition(): array
     {
         return [
@@ -32,9 +26,7 @@ class TicketFactory extends Factory
 
 
    
-    /**
-     * Attach to a specific reservation.
-     */
+   
     public function forReservation(Reservation $reservation): static
     {
         return $this->state(fn (array $attributes) => [
@@ -42,9 +34,7 @@ class TicketFactory extends Factory
         ]);
     }
 
-    /**
-     * Attach to a specific ticket type.
-     */
+    
     public function forTicketType(TicketType $ticketType): static
     {
         return $this->state(fn (array $attributes) => [
@@ -52,9 +42,7 @@ class TicketFactory extends Factory
         ]);
     }
 
-    /**
-     * Mark ticket as used.
-     */
+   
     public function used(): static
     {
         return $this->state(fn (array $attributes) => [
@@ -62,13 +50,19 @@ class TicketFactory extends Factory
         ]);
     }
 
-    /**
-     * Mark ticket as cancelled.
-     */
+    
     public function cancelled(): static
     {
         return $this->state(fn (array $attributes) => [
             'status' => TicketStatusEnum::Cancelled->value,
+        ]);
+    }
+
+   
+    public function pending(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => TicketStatusEnum::Pending->value,
         ]);
     }
 }

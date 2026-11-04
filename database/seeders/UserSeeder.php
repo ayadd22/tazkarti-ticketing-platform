@@ -9,10 +9,7 @@ use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
-    /**
-     * Fixed accounts that are always present.
-     * Idempotency: firstOrCreate on email.
-     */
+   
     private const FIXED_USERS = [
         [
             'email' => 'admin@tazkarti.test',
@@ -41,17 +38,14 @@ class UserSeeder extends Seeder
         ],
     ];
 
-    /**
-     * Total random buyer accounts to ensure exist (beyond the fixed ones).
-     * Idempotency: we check the current count and only create the deficit.
-     */
+   
     private const TARGET_RANDOM_BUYERS = 20;
 
     public function run(): void
     {
         $password = Hash::make('password');
 
-        // ── Fixed accounts ────────────────────────────────────────────────────
+       
         foreach (self::FIXED_USERS as $data) {
             User::firstOrCreate(
                 ['email' => $data['email']],
@@ -64,8 +58,7 @@ class UserSeeder extends Seeder
             );
         }
 
-        // ── Random buyers ─────────────────────────────────────────────────────
-        // Count existing random buyers (those not in the fixed list)
+      
         $fixedEmails  = array_column(self::FIXED_USERS, 'email');
         $existingCount = User::where('role', UserRoleEnum::Buyer->value)
             ->whereNotIn('email', $fixedEmails)

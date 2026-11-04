@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ReservationCreated;
 use App\Http\Requests\StoreReservationRequest;
 use App\Http\Resources\ReservationResource;
 use App\Models\Reservation;
@@ -20,6 +21,9 @@ class ReservationController extends Controller
             $request->user(),
             $request->validated('items'),
         );
+
+        // Dispatch after the transaction commits — never inside the service closure.
+        ReservationCreated::dispatch($reservation);
 
         return response()->json(
             ['data' => ReservationResource::make($reservation)],

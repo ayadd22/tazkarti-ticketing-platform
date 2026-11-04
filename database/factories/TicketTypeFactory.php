@@ -6,21 +6,13 @@ use App\Models\Event;
 use App\Models\TicketType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<TicketType>
- */
+
 class TicketTypeFactory extends Factory
 {
-    /**
-     * Ticket tier names to cycle through.
-     */
+    
     private static array $tierNames = ['General Admission', 'Standard', 'VIP', 'Premium', 'Early Bird', 'Student'];
 
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+   
     public function definition(): array
     {
         $tierName      = fake()->randomElement(self::$tierNames);

@@ -9,10 +9,7 @@ use Illuminate\Support\Str;
 
 class VenueSeeder extends Seeder
 {
-    /**
-     * Fixed venues keyed by a stable unique name.
-     * Idempotency: firstOrCreate on (city_id, name).
-     */
+    
     private const VENUES = [
         ['city' => 'Cairo',           'name' => 'Cairo International Conference Center', 'address' => '1 Corniche El-Nil, Cairo',            'capacity' => 10000],
         ['city' => 'Cairo',           'name' => 'Cairo Opera House',                     'address' => 'Gezira Island, Cairo',                'capacity' => 1200],

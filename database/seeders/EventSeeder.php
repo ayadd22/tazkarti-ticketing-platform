@@ -11,12 +11,9 @@ use Illuminate\Database\Seeder;
 
 class EventSeeder extends Seeder
 {
-    /**
-     * Fixed events identified by a stable (organizer_email, title) pair.
-     * Idempotency: firstOrCreate on title + organizer_id.
-     */
+    
     private const FIXED_EVENTS = [
-        // Published events
+  
         [
             'organizer_email' => 'organizer1@tazkarti.test',
             'venue_name'      => 'Cairo Opera House',
@@ -85,7 +82,7 @@ class EventSeeder extends Seeder
             'ends_at'         => '2026-09-01 23:00:00',
             'published_at'    => '2026-07-01 10:00:00',
         ],
-        // Postponed event
+       
         [
             'organizer_email' => 'organizer1@tazkarti.test',
             'venue_name'      => 'Alexandria Sporting Club Arena',
