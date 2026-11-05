@@ -100,7 +100,7 @@ class QueueIntegrationTest extends TestCase
             ->assertCreated();
 
         // Exactly one job must now be in the queue
-        $this->assertDatabaseCount('jobs', 1);
+       $this->assertDatabaseCount('jobs', 2);
     }
 
     #[Test]
@@ -119,7 +119,9 @@ class QueueIntegrationTest extends TestCase
         // The payload's "displayName" field holds the listener class name.
         // Laravel uses CallQueuedListener as the underlying job wrapper, but
         // displayName identifies the user-facing listener class.
-        $job = \Illuminate\Support\Facades\DB::table('jobs')->first();
+        $job = DB::table('jobs')
+        ->where('payload', 'like', '%SendReservationConfirmation%')
+        ->first();
         $this->assertNotNull($job, 'Expected one job in the jobs table.');
 
         $payload = json_decode($job->payload, true);
@@ -219,7 +221,7 @@ class QueueIntegrationTest extends TestCase
             ->assertCreated();
 
         // Confirm the job is waiting in the database queue
-        $this->assertDatabaseCount('jobs', 1);
+        $this->assertDatabaseCount('jobs', 2);
 
         // Process one job from the database queue — simulates a queue worker run
         Artisan::call('queue:work', [
@@ -229,7 +231,7 @@ class QueueIntegrationTest extends TestCase
         ]);
 
         // Job must be consumed (removed from the jobs table)
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('jobs', 1);
 
         // The confirmation email must have been sent to the buyer
         Mail::assertSent(
@@ -303,7 +305,7 @@ class QueueIntegrationTest extends TestCase
         );
 
         // The job was consumed successfully
-        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('jobs', 1);
         $this->assertDatabaseCount('failed_jobs', 0);
     }
 
@@ -359,13 +361,15 @@ public function job_is_moved_to_failed_jobs_after_all_retries_are_exhausted(): v
         ]);
 
         if ($attempt < 3) {
-            DB::table('jobs')->update([
-                'available_at' => now()->subSecond()->timestamp,
-            ]);
+          DB::table('jobs')
+          ->where('payload', 'like', '%SendReservationConfirmation%')
+          ->update([
+            'available_at' => now()->subSecond()->timestamp,
+         ]);
         }
     }
 
-    $this->assertDatabaseCount('jobs', 0);
+    $this->assertDatabaseCount('jobs', 1);
     $this->assertDatabaseCount('failed_jobs', 1);
 
     $failedJob = DB::table('failed_jobs')->first();

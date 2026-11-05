@@ -16,6 +16,19 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 use App\Services\EventCacheService;
 use Illuminate\Support\Facades\Cache;
+use App\Services\ReservationService;
+use App\Events\ReservationPaid;
+use Illuminate\Support\Facades\Event as EventFacade;
+use App\Listeners\QueuePaidReservationTickets;
+use App\Jobs\GenerateTicketFileJob;
+use App\Jobs\SendTicketSmsJob;
+use Illuminate\Support\Facades\Queue;
+use App\Contracts\TicketStorageInterface;
+use Illuminate\Support\Facades\Storage;
+use App\Contracts\SmsServiceInterface;
+use Mockery;
+use RuntimeException;
+use App\Jobs\ExpireReservationJob;
 
 
 class ReservationTest extends TestCase
@@ -652,4 +665,678 @@ public function creating_reservation_invalidates_cached_event_listing(): void
             'status' => TicketStatusEnum::Valid->value,
         ]);
     }
+    #[Test]
+public function successful_payment_confirms_reservation_and_updates_inventory(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'total_quantity' => 20,
+        'reserved_quantity' => 2,
+        'sold_quantity' => 3,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+    $tickets = \App\Models\Ticket::factory()
+        ->count(2)
+        ->pending()
+        ->create([
+            'reservation_id' => $reservation->id,
+            'ticket_type_id' => $ticketType->id,
+        ]);
+
+    $updatedReservation = app(ReservationService::class)
+        ->confirmPayment($reservation);
+
+    $this->assertSame(
+        ReservationStatusEnum::Paid,
+        $updatedReservation->status
+    );
+
+    $this->assertNotNull($updatedReservation->paid_at);
+
+    $this->assertDatabaseHas('ticket_types', [
+        'id' => $ticketType->id,
+        'reserved_quantity' => 0,
+        'sold_quantity' => 5,
+    ]);
+
+    foreach ($tickets as $ticket) {
+        $this->assertDatabaseHas('tickets', [
+            'id' => $ticket->id,
+            'status' => TicketStatusEnum::Valid->value,
+        ]);
+    }
+}
+#[Test]
+public function expired_reservation_cannot_be_paid(): void
+{
+    $buyer = User::factory()->buyer()->create();
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    try {
+        app(ReservationService::class)->confirmPayment($reservation);
+        $this->fail('Expected payment confirmation to fail.');
+    } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+        $this->assertSame(409, $exception->getStatusCode());
+    }
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Pending->value,
+    ]);
+}#[Test]
+public function already_paid_reservation_cannot_be_paid_again(): void
+{
+    $buyer = User::factory()->buyer()->create();
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+        'paid_at' => now(),
+        'expires_at' => now()->addMinutes(5),
+    ]);
+
+    try {
+        app(ReservationService::class)->confirmPayment($reservation);
+        $this->fail('Expected repeated payment confirmation to fail.');
+    } catch (\Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+        $this->assertSame(409, $exception->getStatusCode());
+    }
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Paid->value,
+    ]);
+}
+
+#[Test]
+public function buyer_can_confirm_payment_for_own_reservation(): void
+{
+    $buyer = User::factory()->buyer()->create();
+
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'total_quantity' => 20,
+        'reserved_quantity' => 2,
+        'sold_quantity' => 0,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+    \App\Models\Ticket::factory()
+        ->count(2)
+        ->pending()
+        ->create([
+            'reservation_id' => $reservation->id,
+            'ticket_type_id' => $ticketType->id,
+        ]);
+
+    $response = $this->withToken($this->tokenFor($buyer))
+        ->postJson("/api/reservations/{$reservation->id}/confirm-payment");
+
+    $response->assertOk()
+        ->assertJsonPath('data.status', ReservationStatusEnum::Paid->value);
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Paid->value,
+    ]);
+}
+#[Test]
+public function buyer_cannot_confirm_payment_for_another_buyers_reservation(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $anotherBuyer = User::factory()->buyer()->create();
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $anotherBuyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $response = $this->withToken($this->tokenFor($buyer))
+        ->postJson("/api/reservations/{$reservation->id}/confirm-payment");
+
+    $response->assertForbidden();
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Pending->value,
+    ]);
+}
+#[Test]
+public function organizer_cannot_confirm_payment(): void
+{
+    $organizer = User::factory()->organizer()->create();
+    $buyer = User::factory()->buyer()->create();
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $response = $this->withToken($this->tokenFor($organizer))
+        ->postJson("/api/reservations/{$reservation->id}/confirm-payment");
+
+    $response->assertForbidden();
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Pending->value,
+    ]);
+}
+#[Test]
+public function successful_payment_dispatches_reservation_paid_event(): void
+{
+    EventFacade::fake([ReservationPaid::class]);
+
+    $buyer = User::factory()->buyer()->create();
+
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'total_quantity' => 20,
+        'reserved_quantity' => 1,
+        'sold_quantity' => 0,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(10),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 1,
+        'unit_price' => '100.00',
+    ]);
+
+    \App\Models\Ticket::factory()
+        ->pending()
+        ->create([
+            'reservation_id' => $reservation->id,
+            'ticket_type_id' => $ticketType->id,
+        ]);
+
+    $this->withToken($this->tokenFor($buyer))
+        ->postJson("/api/reservations/{$reservation->id}/confirm-payment")
+        ->assertOk();
+
+    EventFacade::assertDispatched(
+    ReservationPaid::class,
+    fn (ReservationPaid $event) =>
+        $event->reservation->id === $reservation->id
+);
+}
+#[Test]
+public function paid_reservation_listener_dispatches_jobs_for_each_ticket(): void
+{
+    Queue::fake();
+
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+        'paid_at' => now(),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+   \App\Models\Ticket::factory()
+    ->count(2)
+    ->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+        'status' => TicketStatusEnum::Valid,
+    ]);
+
+    $listener = app(QueuePaidReservationTickets::class);
+
+    $listener->handle(new ReservationPaid($reservation));
+
+    Queue::assertPushed(GenerateTicketFileJob::class, 2);
+    Queue::assertPushed(SendTicketSmsJob::class, 2);
+
+    Queue::assertPushedOn('ticket-files', GenerateTicketFileJob::class);
+    Queue::assertPushedOn('notifications', SendTicketSmsJob::class);
+}
+#[Test]
+public function generate_ticket_file_job_creates_file_and_saves_path(): void
+{
+    Storage::fake('local');
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'file_path' => null,
+    ]);
+
+    $job = new GenerateTicketFileJob($ticket);
+
+    $job->handle(app(TicketStorageInterface::class));
+
+    $ticket->refresh();
+
+    $this->assertNotNull($ticket->file_path);
+
+    Storage::disk('local')->assertExists($ticket->file_path);
+
+    $this->assertSame(
+        "Ticket Code: {$ticket->code}",
+        Storage::disk('local')->get($ticket->file_path)
+    );
+}
+
+
+#[Test]
+public function generate_ticket_file_job_skips_ticket_that_already_has_file(): void
+{
+    Storage::fake('local');
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'file_path' => 'tickets/existing-ticket.txt',
+    ]);
+
+    Storage::disk('local')->put(
+        $ticket->file_path,
+        'Existing ticket file'
+    );
+
+    $job = new GenerateTicketFileJob($ticket);
+
+    $job->handle(app(TicketStorageInterface::class));
+
+    Storage::disk('local')->assertExists($ticket->file_path);
+
+    $this->assertSame(
+        'Existing ticket file',
+        Storage::disk('local')->get($ticket->file_path)
+    );
+}
+
+
+
+#[Test]
+public function send_ticket_sms_job_sends_sms_and_saves_timestamp(): void
+{
+    $buyer = User::factory()->buyer()->create([
+        'phone' => '+963999123456',
+    ]);
+
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+        'paid_at' => now(),
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+    ]);
+
+    $sms = Mockery::mock(SmsServiceInterface::class);
+
+    $sms->shouldReceive('send')
+        ->once()
+        ->with(
+            $buyer->phone,
+            "Your ticket code is: {$ticket->code}"
+        );
+
+    $job = new SendTicketSmsJob($ticket);
+
+    $job->handle($sms);
+
+    $this->assertNotNull($ticket->fresh()->sms_sent_at);
+}
+#[Test]
+public function send_ticket_sms_job_skips_ticket_already_sent(): void
+{
+    $buyer = User::factory()->buyer()->create([
+        'phone' => '+963999123456',
+    ]);
+
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+    ]);
+
+    $sentAt = now()->subMinute();
+
+    $ticket->forceFill([
+        'sms_sent_at' => $sentAt,
+    ])->save();
+
+    $sms = Mockery::mock(SmsServiceInterface::class);
+
+    $sms->shouldNotReceive('send');
+
+    $job = new SendTicketSmsJob($ticket);
+
+    $job->handle($sms);
+
+    $this->assertEquals(
+        $sentAt->timestamp,
+        $ticket->fresh()->sms_sent_at->timestamp
+    );
+}
+#[Test]
+public function send_ticket_sms_job_fails_when_buyer_phone_is_missing(): void
+{
+    $buyer = User::factory()->buyer()->create([
+        'phone' => null,
+    ]);
+
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+    ]);
+
+    $sms = Mockery::mock(SmsServiceInterface::class);
+
+    $sms->shouldNotReceive('send');
+
+    try {
+        (new SendTicketSmsJob($ticket))->handle($sms);
+
+        $this->fail('Expected SMS sending to fail.');
+    } catch (RuntimeException $exception) {
+        $this->assertStringContainsString(
+            'Buyer phone number is missing',
+            $exception->getMessage()
+        );
+    }
+
+    $this->assertNull($ticket->fresh()->sms_sent_at);
+}
+
+#[Test]
+public function send_ticket_sms_job_does_not_mark_ticket_sent_when_provider_fails(): void
+{
+    $buyer = User::factory()->buyer()->create([
+        'phone' => '+963999123456',
+    ]);
+
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+    ]);
+
+    $sms = Mockery::mock(SmsServiceInterface::class);
+
+    $sms->shouldReceive('send')
+        ->once()
+        ->andThrow(new RuntimeException('SMS provider unavailable.'));
+
+    try {
+        (new SendTicketSmsJob($ticket))->handle($sms);
+
+        $this->fail('Expected SMS provider failure.');
+    } catch (RuntimeException $exception) {
+        $this->assertSame(
+            'SMS provider unavailable.',
+            $exception->getMessage()
+        );
+    }
+
+    $this->assertNull($ticket->fresh()->sms_sent_at);
+}
+
+
+#[Test]
+public function expire_reservation_job_expires_reservation_and_releases_inventory(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'total_quantity' => 20,
+        'reserved_quantity' => 2,
+        'sold_quantity' => 0,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+    $tickets = \App\Models\Ticket::factory()
+        ->count(2)
+        ->pending()
+        ->create([
+            'reservation_id' => $reservation->id,
+            'ticket_type_id' => $ticketType->id,
+        ]);
+
+    (new ExpireReservationJob($reservation->id))
+        ->handle(app(EventCacheService::class));
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Expired->value,
+    ]);
+
+    $this->assertDatabaseHas('ticket_types', [
+        'id' => $ticketType->id,
+        'reserved_quantity' => 0,
+    ]);
+
+    foreach ($tickets as $ticket) {
+        $this->assertDatabaseHas('tickets', [
+            'id' => $ticket->id,
+            'status' => TicketStatusEnum::Cancelled->value,
+        ]);
+    }
+}
+
+#[Test]
+public function expire_reservation_job_does_not_change_paid_reservation(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'reserved_quantity' => 0,
+        'sold_quantity' => 2,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Paid,
+        'paid_at' => now(),
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()->create([
+        'reservation_id' => $reservation->id,
+        'ticket_type_id' => $ticketType->id,
+        'status' => TicketStatusEnum::Valid,
+    ]);
+
+    (new ExpireReservationJob($reservation->id))
+        ->handle(app(EventCacheService::class));
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Paid->value,
+    ]);
+
+    $this->assertDatabaseHas('ticket_types', [
+        'id' => $ticketType->id,
+        'reserved_quantity' => 0,
+        'sold_quantity' => 2,
+    ]);
+
+    $this->assertDatabaseHas('tickets', [
+        'id' => $ticket->id,
+        'status' => TicketStatusEnum::Valid->value,
+    ]);
+}
+
+#[Test]
+public function expire_reservation_job_does_not_expire_reservation_before_deadline(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'reserved_quantity' => 2,
+    ]);
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+        'status' => ReservationStatusEnum::Pending,
+        'expires_at' => now()->addMinutes(5),
+    ]);
+
+    $reservation->reservationItems()->create([
+        'ticket_type_id' => $ticketType->id,
+        'quantity' => 2,
+        'unit_price' => '100.00',
+    ]);
+
+    $ticket = \App\Models\Ticket::factory()
+        ->pending()
+        ->create([
+            'reservation_id' => $reservation->id,
+            'ticket_type_id' => $ticketType->id,
+        ]);
+
+    (new ExpireReservationJob($reservation->id))
+        ->handle(app(EventCacheService::class));
+
+    $this->assertDatabaseHas('reservations', [
+        'id' => $reservation->id,
+        'status' => ReservationStatusEnum::Pending->value,
+    ]);
+
+    $this->assertDatabaseHas('ticket_types', [
+        'id' => $ticketType->id,
+        'reserved_quantity' => 2,
+    ]);
+
+    $this->assertDatabaseHas('tickets', [
+        'id' => $ticket->id,
+        'status' => TicketStatusEnum::Pending->value,
+    ]);
+}
+
+#[Test]
+public function expire_reservation_job_handles_missing_reservation(): void
+{
+    $job = new ExpireReservationJob(999999);
+
+    $job->handle(app(EventCacheService::class));
+
+    $this->assertDatabaseMissing('reservations', [
+        'id' => 999999,
+    ]);
+}
+
+#[Test]
+public function creating_reservation_dispatches_delayed_expiration_job(): void
+{
+    Queue::fake();
+
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $reservation = app(ReservationService::class)->create(
+        $buyer,
+        [
+            [
+                'ticket_type_id' => $ticketType->id,
+                'quantity' => 2,
+            ],
+        ]
+    );
+
+    Queue::assertPushed(
+        ExpireReservationJob::class,
+        function (ExpireReservationJob $job) use ($reservation) {
+            return $job->reservationId === $reservation->id
+                && $job->delay instanceof \DateTimeInterface
+                && $job->delay->getTimestamp() ===
+                    $reservation->expires_at->getTimestamp();
+        }
+    );
+}
+
 }

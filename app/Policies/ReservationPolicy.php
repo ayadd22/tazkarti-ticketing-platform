@@ -31,4 +31,10 @@ class ReservationPolicy
     {
         return $user->role === UserRoleEnum::Buyer;
     }
+
+    public function pay(User $user, Reservation $reservation): bool
+  {
+    return $user->role === UserRoleEnum::Buyer
+        && $user->id === $reservation->buyer_id;
+  }
 }

@@ -10,6 +10,7 @@ use App\Services\ReservationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use App\Events\ReservationPaid;
 
 class ReservationController extends Controller
 {
@@ -60,4 +61,20 @@ class ReservationController extends Controller
             ['data' => ReservationResource::make($reservation)],
         );
     }
+   
+
+  public function confirmPayment(Reservation $reservation): JsonResponse
+  {
+    $this->authorize('pay', $reservation);
+
+    $reservation = $this->service->confirmPayment($reservation);
+
+    ReservationPaid::dispatch($reservation);
+
+    return response()->json([
+        'message' => 'Payment confirmed successfully.',
+        'data' => ReservationResource::make($reservation),
+    ]);
+  }
+
 }

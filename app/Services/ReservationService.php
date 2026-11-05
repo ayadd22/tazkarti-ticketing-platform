@@ -11,11 +11,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Services\EventCacheService;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use App\Jobs\ExpireReservationJob;
 
 class ReservationService
 {
     
-    private const EXPIRY_MINUTES = 15;
+    private const EXPIRY_MINUTES = 10;
 
   
     private const CODE_MAX_ATTEMPTS = 5;
@@ -116,9 +118,75 @@ class ReservationService
 
         app(EventCacheService::class)->invalidate();
 
+        ExpireReservationJob::dispatch($reservation->id)
+         ->delay($reservation->expires_at)
+         ->afterCommit();
+
         return $reservation;
     }
 
+
+
+    public function confirmPayment(Reservation $reservation): Reservation
+  {
+    return DB::transaction(function () use ($reservation) {
+
+        $reservation = Reservation::query()
+            ->whereKey($reservation->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        if ($reservation->status !== ReservationStatusEnum::Pending) {
+            throw new HttpException(409, 'Reservation is not pending.');
+        }
+
+        if ($reservation->expires_at->isPast()) {
+            throw new HttpException(409, 'Reservation has expired.');
+        }
+
+        $items = $reservation->reservationItems()
+            ->get();
+
+        $ticketTypeIds = $items->pluck('ticket_type_id')
+            ->unique()
+            ->sort()
+            ->values();
+
+        $ticketTypes = TicketType::query()
+            ->whereIn('id', $ticketTypeIds)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        foreach ($items as $item) {
+            $ticketType = $ticketTypes->get($item->ticket_type_id);
+              if (!$ticketType || $ticketType->reserved_quantity < $item->quantity ||
+                ($ticketType->sold_quantity + $item->quantity) > $ticketType->total_quantity) {
+                throw new \RuntimeException('Reserved inventory is inconsistent.');
+            }
+
+            $ticketType->decrement('reserved_quantity', $item->quantity);
+            $ticketType->increment('sold_quantity', $item->quantity);
+        }
+
+        $reservation->tickets()
+            ->where('status', TicketStatusEnum::Pending->value)
+            ->update([
+                'status' => TicketStatusEnum::Valid->value,
+            ]);
+
+        $reservation->update([
+            'status' => ReservationStatusEnum::Paid->value,
+            'paid_at' => now(),
+        ]);
+
+        return $reservation->load([
+            'reservationItems',
+            'tickets',
+        ]);
+    });
+  }
    
     private function mergeItems(array $items): array
     {

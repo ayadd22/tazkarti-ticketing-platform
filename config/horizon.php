@@ -147,7 +147,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection'           => 'redis',
-            'queue'                => ['default'],
+            'queue' => ['notifications', 'ticket-files', 'default'],
             'balance'              => 'auto',
             'autoScalingStrategy'  => 'time',
             'maxProcesses'         => 1,

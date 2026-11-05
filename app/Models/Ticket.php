@@ -24,6 +24,7 @@ class Ticket extends Model
     {
         return [
             'status' => TicketStatusEnum::class,
+            'sms_sent_at' => 'datetime',
         ];
     }
 
