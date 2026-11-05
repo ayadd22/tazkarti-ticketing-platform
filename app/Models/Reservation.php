@@ -31,6 +31,7 @@ class Reservation extends Model
             'expires_at'   => 'datetime',
             'paid_at'      => 'datetime',
             'refunded_at'  => 'datetime',
+            'confirmation_email_sent_at' => 'datetime',
         ];
     }
 

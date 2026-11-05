@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Integration tests for the database queue driver.
@@ -329,4 +330,49 @@ class QueueIntegrationTest extends TestCase
 
         $this->assertDatabaseCount('failed_jobs', 0);
     }
+
+    #[Test]
+public function job_is_moved_to_failed_jobs_after_all_retries_are_exhausted(): void
+{
+    Mail::shouldReceive('to')
+        ->times(3)
+        ->andThrow(new \RuntimeException('Mail delivery failed.'));
+
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    $this->withToken($this->tokenFor($buyer))
+        ->postJson('/api/reservations', [
+            'items' => [
+                ['ticket_type_id' => $ticketType->id, 'quantity' => 1],
+            ],
+        ])
+        ->assertCreated();
+
+    // Simulate the three attempts made by the queue worker.
+    for ($attempt = 1; $attempt <= 3; $attempt++) {
+        Artisan::call('queue:work', [
+            '--once' => true,
+            '--queue' => 'default',
+            '--tries' => 3,
+        ]);
+
+        if ($attempt < 3) {
+            DB::table('jobs')->update([
+                'available_at' => now()->subSecond()->timestamp,
+            ]);
+        }
+    }
+
+    $this->assertDatabaseCount('jobs', 0);
+    $this->assertDatabaseCount('failed_jobs', 1);
+
+    $failedJob = DB::table('failed_jobs')->first();
+
+    $this->assertStringContainsString(
+        'Mail delivery failed.',
+        $failedJob->exception
+    );
+}
 }

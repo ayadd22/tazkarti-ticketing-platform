@@ -216,6 +216,37 @@ class ReservationCreatedEventTest extends TestCase
         Mail::assertSent(ReservationConfirmationMail::class, 1);
     }
 
+
+    
+#[Test]
+public function retrying_listener_does_not_send_duplicate_confirmation_email(): void
+{
+    Mail::fake();
+
+    $buyer = User::factory()->buyer()->create();
+
+    $reservation = Reservation::factory()->create([
+        'buyer_id' => $buyer->id,
+    ]);
+
+    $event = new ReservationCreated($reservation);
+
+    $listener = new SendReservationConfirmation();
+
+    // First execution sends the email.
+    $listener->handle($event);
+
+    // Second execution simulates a retry.
+    $listener->handle($event);
+
+    Mail::assertSent(ReservationConfirmationMail::class, 1);
+
+    $this->assertNotNull(
+        $reservation->fresh()->confirmation_email_sent_at
+    );
+}
+
+
     #[Test]
     public function confirmation_email_carries_the_correct_reservation(): void
     {
@@ -421,4 +452,42 @@ class ReservationCreatedEventTest extends TestCase
 
         $this->assertStringContainsString('EGP', $html);
     }
+
+
+    #[Test]
+public function listener_has_correct_retry_and_backoff_configuration(): void
+{
+    $listener = new SendReservationConfirmation();
+
+    $this->assertSame(3, $listener->tries);
+    $this->assertSame([10, 30, 60], $listener->backoff);
+    $this->assertSame(60, $listener->timeout);
+}
+
+
+#[Test]
+public function permanently_failed_listener_logs_the_reservation_id(): void
+{
+    \Illuminate\Support\Facades\Log::spy();
+
+    $reservation = Reservation::factory()->create();
+
+    $event = new ReservationCreated($reservation);
+
+    $listener = new SendReservationConfirmation();
+
+    $exception = new \RuntimeException('Mail delivery failed.');
+
+    $listener->failed($event, $exception);
+
+    \Illuminate\Support\Facades\Log::shouldHaveReceived('error')
+        ->once()
+        ->with(
+            'Reservation confirmation email permanently failed.',
+            \Mockery::on(fn ($context) =>
+                $context['reservation_id'] === $reservation->id
+                && $context['exception'] === 'Mail delivery failed.'
+            )
+        );
+}
 }
