@@ -14,6 +14,9 @@ use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+use App\Services\EventCacheService;
+use Illuminate\Support\Facades\Cache;
+
 
 class ReservationTest extends TestCase
 {
@@ -225,6 +228,51 @@ class ReservationTest extends TestCase
             'sold_quantity' => 0,
         ]);
     }
+
+    #[Test]
+public function creating_reservation_invalidates_cached_event_listing(): void
+{
+    $buyer = User::factory()->buyer()->create();
+    $event = $this->publishedEvent();
+    $ticketType = $this->ticketType($event);
+
+    // Cache the current event listing.
+    $this->getJson('/api/events')->assertOk();
+
+    $cache = app(EventCacheService::class);
+
+    $oldCacheKey = $cache->key('listing:' . sha1(json_encode([
+        'search' => '',
+        'city' => '',
+        'type' => '',
+        'upcoming' => false,
+        'per_page' => 15,
+        'page' => 1,
+    ])));
+
+    $this->assertTrue(Cache::has($oldCacheKey));
+
+    // Create a reservation successfully.
+    $this->withToken($this->tokenFor($buyer))
+        ->postJson('/api/reservations', [
+            'items' => [
+                ['ticket_type_id' => $ticketType->id, 'quantity' => 2],
+            ],
+        ])
+        ->assertCreated();
+
+    // The cache version must change.
+    $newCacheKey = $cache->key('listing:' . sha1(json_encode([
+        'search' => '',
+        'city' => '',
+        'type' => '',
+        'upcoming' => false,
+        'per_page' => 15,
+        'page' => 1,
+    ])));
+
+    $this->assertNotSame($oldCacheKey, $newCacheKey);
+}
 
     #[Test]
     public function total_amount_is_computed_from_database_prices_not_client_input(): void

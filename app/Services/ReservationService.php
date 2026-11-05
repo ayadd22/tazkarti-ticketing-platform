@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Services\EventCacheService;
 
 class ReservationService
 {
@@ -25,7 +26,7 @@ class ReservationService
        
         $merged = $this->mergeItems($items);
 
-        return DB::transaction(function () use ($buyer, $merged) {
+        $reservation = DB::transaction(function () use ($buyer, $merged) {
             $ticketTypeIds = array_keys($merged);
 
             $ticketTypes = TicketType::whereIn('id', $ticketTypeIds)
@@ -111,6 +112,11 @@ class ReservationService
             
             return $reservation->load(['reservationItems', 'tickets']);
         });
+
+
+        app(EventCacheService::class)->invalidate();
+
+        return $reservation;
     }
 
    

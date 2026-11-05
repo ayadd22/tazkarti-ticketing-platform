@@ -12,6 +12,9 @@ use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
+use App\Services\EventCacheService;
+use Illuminate\Support\Facades\Cache;
+
 
 class EventListingTest extends TestCase
 {
@@ -483,4 +486,83 @@ class EventListingTest extends TestCase
         $this->assertEquals($sooner->id, $ids[0]);
         $this->assertEquals($later->id, $ids[1]);
     }
+
+
+    #[Test]
+public function listing_results_are_cached(): void
+{
+    $this->publishedEvent();
+
+    $this->getJson('/api/events')->assertOk();
+
+    $identifier = 'listing:' . sha1(json_encode([
+        'search' => '',
+        'city' => '',
+        'type' => '',
+        'upcoming' => false,
+        'per_page' => 15,
+        'page' => 1,
+    ]));
+
+    $cacheKey = app(EventCacheService::class)->key($identifier);
+
+    $this->assertTrue(Cache::has($cacheKey));
+}
+#[Test]
+public function updating_event_invalidates_cached_listing(): void
+{
+    $event = $this->publishedEvent([
+        'title' => 'Old Event Title',
+    ]);
+
+    // First request: cache the old event data.
+    $this->getJson('/api/events')
+        ->assertOk()
+        ->assertJsonPath('data.0.title', 'Old Event Title');
+
+    // Update the event.
+    $event->update([
+        'title' => 'Updated Event Title',
+    ]);
+
+    // Second request must return the updated data.
+    $this->getJson('/api/events')
+        ->assertOk()
+        ->assertJsonPath('data.0.title', 'Updated Event Title');
+}
+#[Test]
+public function event_details_are_cached(): void
+{
+    $event = $this->publishedEvent();
+
+    $this->getJson("/api/events/{$event->id}")
+        ->assertOk();
+
+    $cacheKey = app(EventCacheService::class)
+        ->key("event:{$event->id}");
+
+    $this->assertTrue(Cache::has($cacheKey));
+}
+
+#[Test]
+public function updating_ticket_type_invalidates_cached_event_details(): void
+{
+    $event = $this->publishedEvent();
+
+    $ticketType = $this->ticketType($event, [
+        'price' => 100,
+    ]);
+
+    $this->getJson("/api/events/{$event->id}")
+        ->assertOk()
+        ->assertJsonPath('data.ticket_types.0.price', '100.00');
+
+    $ticketType->update([
+        'price' => 200,
+    ]);
+
+    $this->getJson("/api/events/{$event->id}")
+        ->assertOk()
+        ->assertJsonPath('data.ticket_types.0.price', '200.00');
+}
 }

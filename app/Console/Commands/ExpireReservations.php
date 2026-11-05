@@ -82,6 +82,10 @@ class ExpireReservations extends Command
                 }
             });
 
+            if ($expiredCount > 0) {
+             app(\App\Services\EventCacheService::class)->invalidate();
+            }
+
         $this->info("Expired {$expiredCount} reservation(s).");
 
         return self::SUCCESS;
