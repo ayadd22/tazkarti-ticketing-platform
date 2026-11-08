@@ -13,6 +13,9 @@ use Illuminate\Validation\ValidationException;
 use App\Services\EventCacheService;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use App\Jobs\ExpireReservationJob;
+use App\Models\Event;
+use App\Enums\EventStatusEnum;
+
 
 class ReservationService
 {
@@ -23,107 +26,116 @@ class ReservationService
     private const CODE_MAX_ATTEMPTS = 5;
 
 
-    public function create(User $buyer, array $items): Reservation
-    {
-       
-        $merged = $this->mergeItems($items);
+    
+public function create(User $buyer, array $items): Reservation
+{
+    $merged = $this->mergeItems($items);
 
-        $reservation = DB::transaction(function () use ($buyer, $merged) {
-            $ticketTypeIds = array_keys($merged);
+    $reservation = DB::transaction(function () use ($buyer, $merged) {
+        $ticketTypeIds = array_keys($merged);
 
-            $ticketTypes = TicketType::whereIn('id', $ticketTypeIds)
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
+        $ticketTypes = TicketType::whereIn('id', $ticketTypeIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
 
-            
-            $errors = [];
+        $errors = [];
 
-            foreach ($merged as $ticketTypeId => $quantity) {
-                $ticketType = $ticketTypes->get($ticketTypeId);
+        foreach ($merged as $ticketTypeId => $quantity) {
+            $ticketType = $ticketTypes->get($ticketTypeId);
 
-                if ($ticketType === null) {
-                    $errors["items.{$ticketTypeId}"] = ["Ticket type #{$ticketTypeId} no longer exists."];
-                    continue;
-                }
-
-                
-                if ($quantity > $ticketType->max_per_order) {
-                    $errors["items"] = array_merge(
-                        $errors["items"] ?? [],
-                        ["You may order at most {$ticketType->max_per_order} ticket(s) for \"{$ticketType->name}\"."]
-                    );
-                }
-
-       
-                $available = $ticketType->total_quantity
-                    - $ticketType->sold_quantity
-                    - $ticketType->reserved_quantity;
-
-                if ($quantity > $available) {
-                    $errors["items"] = array_merge(
-                        $errors["items"] ?? [],
-                        ["Not enough inventory for \"{$ticketType->name}\". Requested {$quantity}, available {$available}."]
-                    );
-                }
+            if ($ticketType === null) {
+                $errors["items.{$ticketTypeId}"] = [
+                    "Ticket type #{$ticketTypeId} no longer exists."
+                ];
+                continue;
             }
 
-            if (!empty($errors)) {
-                throw ValidationException::withMessages($errors);
+            if ($quantity > $ticketType->max_per_order) {
+                $errors["items"] = array_merge(
+                    $errors["items"] ?? [],
+                    ["You may order at most {$ticketType->max_per_order} ticket(s) for \"{$ticketType->name}\"."]
+                );
             }
 
-           
-            $totalAmount = 0;
+            $available = $ticketType->total_quantity
+                - $ticketType->sold_quantity
+                - $ticketType->reserved_quantity;
 
-            foreach ($merged as $ticketTypeId => $quantity) {
-                $totalAmount += (float) $ticketTypes->get($ticketTypeId)->price * $quantity;
+            if ($quantity > $available) {
+                $errors["items"] = array_merge(
+                    $errors["items"] ?? [],
+                    ["Not enough inventory for \"{$ticketType->name}\". Requested {$quantity}, available {$available}."]
+                );
             }
+        }
 
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
+        }
 
-            $reservation = Reservation::create([
-                'buyer_id'     => $buyer->id,
-                'status'       => ReservationStatusEnum::Pending->value,
-                'total_amount' => round($totalAmount, 2),
-                'expires_at'   => now()->addMinutes(self::EXPIRY_MINUTES),
+        
+        $eventIds = $ticketTypes->pluck('event_id')->unique();
+
+        if ($eventIds->count() !== 1) {
+            throw ValidationException::withMessages([
+                'items' => ['A reservation can contain tickets from one event only.'],
+            ]);
+        }
+
+     
+        $event = Event::findOrFail($eventIds->first());
+
+        if ($event->status !== EventStatusEnum::Published) {
+            throw ValidationException::withMessages([
+                'items' => ['Tickets can only be reserved for published events.'],
+            ]);
+        }
+
+        $totalAmount = 0;
+
+        foreach ($merged as $ticketTypeId => $quantity) {
+            $totalAmount += (float) $ticketTypes->get($ticketTypeId)->price * $quantity;
+        }
+
+        $reservation = Reservation::create([
+            'buyer_id' => $buyer->id,
+            'status' => ReservationStatusEnum::Pending->value,
+            'total_amount' => round($totalAmount, 2),
+            'expires_at' => now()->addMinutes(self::EXPIRY_MINUTES),
+        ]);
+
+        foreach ($merged as $ticketTypeId => $quantity) {
+            $ticketType = $ticketTypes->get($ticketTypeId);
+
+            $reservation->reservationItems()->create([
+                'ticket_type_id' => $ticketTypeId,
+                'quantity' => $quantity,
+                'unit_price' => $ticketType->price,
             ]);
 
-          
-            foreach ($merged as $ticketTypeId => $quantity) {
-                $ticketType = $ticketTypes->get($ticketTypeId);
-
-                
-                $reservation->reservationItems()->create([
+            for ($i = 0; $i < $quantity; $i++) {
+                $reservation->tickets()->create([
                     'ticket_type_id' => $ticketTypeId,
-                    'quantity'       => $quantity,
-                    'unit_price'     => $ticketType->price,
+                    'code' => $this->generateUniqueCode(),
+                    'status' => TicketStatusEnum::Pending->value,
                 ]);
-
-           
-                for ($i = 0; $i < $quantity; $i++) {
-                    $reservation->tickets()->create([
-                        'ticket_type_id' => $ticketTypeId,
-                        'code'           => $this->generateUniqueCode(),
-                        'status'         => TicketStatusEnum::Pending->value,
-                    ]);
-                }
-
-                
-                $ticketType->increment('reserved_quantity', $quantity);
             }
 
-            
-            return $reservation->load(['reservationItems', 'tickets']);
-        });
+            $ticketType->increment('reserved_quantity', $quantity);
+        }
 
+        return $reservation->load(['reservationItems', 'tickets']);
+    });
 
-        app(EventCacheService::class)->invalidate();
+    app(EventCacheService::class)->invalidate();
 
-        ExpireReservationJob::dispatch($reservation->id)
-         ->delay($reservation->expires_at)
-         ->afterCommit();
+    ExpireReservationJob::dispatch($reservation->id)
+        ->delay($reservation->expires_at)
+        ->afterCommit();
 
-        return $reservation;
-    }
+    return $reservation;
+}
 
 
 
@@ -158,6 +170,16 @@ class ReservationService
             ->lockForUpdate()
             ->get()
             ->keyBy('id');
+
+            foreach ($ticketTypes as $ticketType) {
+           $ticketType->load('event');
+
+             if ($ticketType->event->status !== EventStatusEnum::Published) {
+            throw ValidationException::withMessages([
+            'reservation' => ['Payment cannot be confirmed because the event is no longer published.'],
+          ]);
+           }
+       }
 
         foreach ($items as $item) {
             $ticketType = $ticketTypes->get($item->ticket_type_id);

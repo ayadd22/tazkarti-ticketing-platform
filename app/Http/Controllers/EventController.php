@@ -9,6 +9,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Cache;
+use App\Enums\EventStatusEnum;
+use App\Enums\EventTypeEnum;
+use Illuminate\Validation\Rule;
+use App\Services\EventCancellationService;
+
 
 class EventController extends Controller
 {
@@ -89,4 +94,77 @@ class EventController extends Controller
 
         return EventResource::make($event);
     }
+
+    public function store(Request $request): EventResource
+{
+    $this->authorize('create', Event::class);
+
+    $data = $request->validate([
+        'venue_id' => ['required', 'exists:venues,id'],
+        'title' => ['required', 'string', 'max:255'],
+        'description' => ['nullable', 'string'],
+        'event_type' => ['required', Rule::enum(EventTypeEnum::class)],
+        'starts_at' => ['required', 'date', 'after:now'],
+        'ends_at' => ['required', 'date', 'after:starts_at'],
+    ]);
+
+    $event = Event::create([
+        ...$data,
+        'organizer_id' => $request->user()->id,
+        'status' => EventStatusEnum::Draft,
+    ]);
+
+    return EventResource::make($event->load(['venue.city', 'ticketTypes']));
+}
+
+public function update(Request $request, Event $event): EventResource
+{
+    $this->authorize('update', $event);
+
+    $data = $request->validate([
+        'venue_id' => ['required', 'exists:venues,id'],
+        'title' => ['required', 'string', 'max:255'],
+        'description' => ['nullable', 'string'],
+        'event_type' => ['required', Rule::enum(EventTypeEnum::class)],
+        'starts_at' => ['required', 'date', 'after:now'],
+        'ends_at' => ['required', 'date', 'after:starts_at'],
+    ]);
+
+    $event->update($data);
+
+    return EventResource::make($event->load(['venue.city', 'ticketTypes']));
+}
+
+public function destroy(Event $event): JsonResponse
+{
+    $this->authorize('delete', $event);
+
+    if ($event->ticketTypes()->exists()) {
+        return response()->json([
+            'message' => 'Cannot delete an event that has ticket types.',
+        ], 409);
+    }
+
+    $event->delete();
+
+    return response()->json([
+        'message' => 'Event deleted successfully.',
+    ]);
+}
+
+public function cancel(
+    Event $event,
+    EventCancellationService $service
+): JsonResponse {
+    $this->authorize('update', $event);
+
+    $event = $service->cancel($event);
+
+    return response()->json([
+        'message' => 'Event cancelled successfully.',
+        'data' => EventResource::make(
+            $event->load(['venue.city', 'ticketTypes'])
+        ),
+    ]);
+}
 }

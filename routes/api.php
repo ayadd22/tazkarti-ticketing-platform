@@ -6,6 +6,7 @@ use App\Http\Controllers\ReservationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+
 // ── Public auth routes ────────────────────────────────────────────────────────
 Route::prefix('auth')->name('auth.')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->name('register');
@@ -39,4 +40,11 @@ Route::middleware('auth:sanctum')->group(function () {
     '/reservations/{reservation}/confirm-payment',
     [ReservationController::class, 'confirmPayment']
    );
+
+
+
+   Route::post('/events', [EventController::class, 'store']);
+   Route::put('/events/{event}', [EventController::class, 'update']);
+   Route::delete('/events/{event}', [EventController::class, 'destroy']);
+   Route::post('/events/{event}/cancel', [EventController::class, 'cancel']);
 });
